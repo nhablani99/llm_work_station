@@ -153,6 +153,15 @@ class CliArgumentTests(unittest.TestCase):
             chat.main(["fast", "hello"])
         open_store.assert_not_called()
 
+    # Any Ollama API error in one-shot mode (here a 500) becomes a one-line error, not a traceback.
+    def test_one_shot_server_error_is_one_line(self):
+        response = httpx.Response(500, request=httpx.Request("POST", "http://ollama"))
+        server_error = openai.InternalServerError("model failed to load", response=response, body=None)
+        with mock.patch.object(chat, "chat", side_effect=server_error), \
+                self.assertRaises(SystemExit) as ctx:
+            chat.main(["fast", "hello"])
+        self.assertEqual(ctx.exception.code, "error: model failed to load")
+
 
 # Build a fake streaming chunk: text content, or a final usage-only chunk.
 def fake_chunk(content=None, usage=None):

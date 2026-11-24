@@ -260,7 +260,7 @@ def main(argv=None):
         return
     try:
         chat(" ".join(args.prompt), task=args.task)
-    except (openai.APIConnectionError, openai.NotFoundError) as e:
+    except openai.APIError as e:
         sys.exit("error: " + error_message(e, pick(args.task, load_registry())["model"]))
     except KeyboardInterrupt:
         print()
