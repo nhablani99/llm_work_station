@@ -14,16 +14,35 @@ served by [Ollama](https://ollama.com), with the task-to-model mapping kept in
 | `client/` | Python client code: `chat.py` (CLI/REPL), `history.py` (SQLite history) |
 | `data/history.db` | Interactive chat history, created on first use (gitignored; override with `CHAT_HISTORY_DB`) |
 | `sync_webui.py` | Mirrors `models.yaml` tasks into Open WebUI as custom models |
-| `scripts.py` | Helper scripts |
-| `docker-compose.yml` | Container setup |
+| `scripts/` | `bootstrap.sh` (one-command setup), `backup.sh` / `restore.sh` (Open WebUI data) |
+| `docker-compose.yml` | Open WebUI container (Ollama runs natively, outside Docker) |
 | `tests/` | Tests |
 | `.env.example` | Template for local environment variables — copy to `.env` (gitignored) |
 | `LEARNING.md` | Notes |
 
-## Prerequisites
+## Quick start
 
-- [Ollama](https://ollama.com) installed and running
-- The models listed in `models.yaml` pulled, e.g. `ollama pull llama3.2:3b`
+Prerequisites: [Docker Desktop](https://www.docker.com/products/docker-desktop/)
+and the [Ollama app](https://ollama.com/download), both running, plus Python 3.10+.
+Ollama runs natively, not in Docker, because Docker on macOS can't use the Apple GPU.
+
+```sh
+git clone https://github.com/nhablani99/llm_work_station.git
+cd llm_work_station
+scripts/bootstrap.sh
+```
+
+The script creates `.env` with a generated secret, installs the Python
+dependencies into `.venv`, starts Open WebUI and waits until it's healthy,
+then pulls every model in `models.yaml` that's missing. It's safe to re-run.
+
+Then open http://localhost:3000 and create your account. The first account
+becomes admin, and sign-up closes automatically after that. Use Admin Panel →
+Users to add anyone else.
+
+Open WebUI only listens on `127.0.0.1`. To reach it from other devices, remove
+the `127.0.0.1:` prefix from `ports` in `docker-compose.yml`. Ollama's API has
+no authentication, so keep it bound to localhost; that's its default.
 
 ## Chat history
 
@@ -58,6 +77,23 @@ prompts, so a task behaves the same in both places.
 models are overwritten on the next sync, so change prompts in the yaml file. If
 you remove a task from `models.yaml`, its Open WebUI model stays; delete it in
 the UI.
+
+## Backups
+
+Open WebUI's users, chats and settings live in a Docker volume. To back them up:
+
+```sh
+scripts/backup.sh                                   # -> backups/webui-<timestamp>.tgz
+scripts/restore.sh backups/webui-<timestamp>.tgz    # asks first; add --yes to skip
+```
+
+Open WebUI is stopped for a few seconds while the backup runs, so the database
+copy is consistent. Downloaded embedding models in `cache/` are skipped because
+Open WebUI downloads them again. Before replacing anything, `restore.sh` checks
+the archive and backs up the current data. `backups/` is gitignored because the
+archives contain chats and password hashes. Copy them somewhere off this machine.
+
+The CLI's own history in `data/history.db` is a plain file, so copy it directly.
 
 ## License
 
