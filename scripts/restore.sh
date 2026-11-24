@@ -26,10 +26,11 @@ cd "$(dirname "$0")/.."
 docker inspect "$CONTAINER" >/dev/null 2>&1 \
   || die "no '$CONTAINER' container - run scripts/bootstrap.sh first"
 
-# Check the archive before touching anything; a corrupt file must not wipe live data.
+# List the whole archive before touching anything, so a truncated or corrupt file fails here.
+# The listing goes to a file, not into `grep -q`: grep exiting early would kill tar with SIGPIPE.
 docker run --rm -v "$archive_dir:/backup:ro" "$HELPER_IMAGE" \
-  sh -c "tar tzf '/backup/$archive_name' | grep -qx './webui.db'" \
-  || die "$archive doesn't look like an Open WebUI backup (no webui.db inside)"
+  sh -c "tar tzf '/backup/$archive_name' > /tmp/list && grep -qx './webui.db' /tmp/list" \
+  || die "$archive is unreadable or isn't an Open WebUI backup (see tar's error above)"
 
 if [ "${2:-}" != "--yes" ]; then
   read -r -p "Replace all current Open WebUI data with $archive_name? Type 'restore': " answer
