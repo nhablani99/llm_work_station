@@ -118,6 +118,33 @@ class LoadDotenvTests(unittest.TestCase):
         env = self.load("# comment\n\nA=1\nB='two'\nC=\"x=y\"\n")
         self.assertEqual(env, {"A": "1", "B": "two", "C": "x=y"})
 
+    # Expected values below were checked against `docker compose config` reading the same lines.
+    # Inline comments after an unquoted value are dropped; a # with no space before it is kept.
+    def test_inline_comments_match_compose(self):
+        env = self.load("A=http://localhost:3001  # custom port\nF=no#space\n")
+        self.assertEqual(env, {"A": "http://localhost:3001", "F": "no#space"})
+
+    # An `export ` prefix is not part of the key.
+    def test_export_prefix_is_ignored(self):
+        self.assertEqual(self.load("export B=exported\n"), {"B": "exported"})
+
+    # A quoted value ends at its closing quote; a comment after it is dropped.
+    def test_comment_after_quoted_value(self):
+        self.assertEqual(self.load('G="quoted" # comment\n'), {"G": "quoted"})
+
+    # An unclosed quote is an error naming the line, as it is for docker compose.
+    def test_unterminated_quote_is_an_error(self):
+        with self.assertRaisesRegex(sync_webui.SyncError, "line 2"):
+            self.load("A=1\nE=\"mismatched'\n")
+
+    # A bad .env stops main() with a one-line error, not a traceback.
+    def test_main_reports_bad_env_file(self):
+        with mock.patch.object(sync_webui, "load_dotenv",
+                               side_effect=sync_webui.SyncError(".env line 2: unclosed quote")), \
+                self.assertRaises(SystemExit) as ctx:
+            sync_webui.main([])
+        self.assertEqual(ctx.exception.code, "error: .env line 2: unclosed quote")
+
     # Variables already set in the environment win over .env.
     def test_environment_wins(self):
         self.assertEqual(self.load("A=file", {"A": "env"}), {"A": "env"})
