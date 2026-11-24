@@ -97,6 +97,15 @@ class RegistryTests(unittest.TestCase):
         self.assertIn("tasks", registry)
         self.assertIn("default", registry)
 
+    # An empty `tasks:` section loads as no tasks, so every task falls back to the default model.
+    def test_empty_tasks_section_falls_back_to_default(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "models.yaml"
+            path.write_text("default: only-model\ntasks:\n")
+            registry = chat.load_registry(path)
+        self.assertEqual(registry["tasks"], {})
+        self.assertEqual(chat.pick("chat", registry)["model"], "only-model")
+
 
 class RequiredModelsTests(unittest.TestCase):
     # Default first, then each task's model in file order, each listed once.
@@ -152,6 +161,15 @@ class CliArgumentTests(unittest.TestCase):
         with mock.patch.object(chat, "chat"), mock.patch.object(history, "open_store") as open_store:
             chat.main(["fast", "hello"])
         open_store.assert_not_called()
+
+    # Any Ollama API error in one-shot mode (here a 500) becomes a one-line error, not a traceback.
+    def test_one_shot_server_error_is_one_line(self):
+        response = httpx.Response(500, request=httpx.Request("POST", "http://ollama"))
+        server_error = openai.InternalServerError("model failed to load", response=response, body=None)
+        with mock.patch.object(chat, "chat", side_effect=server_error), \
+                self.assertRaises(SystemExit) as ctx:
+            chat.main(["fast", "hello"])
+        self.assertEqual(ctx.exception.code, "error: model failed to load")
 
 
 # Build a fake streaming chunk: text content, or a final usage-only chunk.
@@ -304,6 +322,47 @@ class ReplTests(unittest.TestCase):
         self.assertIn("couldn't save history", err)
         self.assertEqual(len(api.requests), 2)
         self.assertEqual(len(api.requests[1]["messages"]), 4)  # history still kept in memory
+
+    # Patch history.save_messages so its first call fails like a locked database, then works.
+    def fail_first_save(self):
+        real_save, calls = history.save_messages, []
+
+        # Raise on the first call; pass every later call through to the real function.
+        def flaky_save(*args):
+            calls.append(args)
+            if len(calls) == 1:
+                raise sqlite3.OperationalError("database is locked")
+            return real_save(*args)
+
+        patcher = mock.patch.object(history, "save_messages", side_effect=flaky_save)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    # A turn whose save failed is retried when the chat ends, so it isn't lost.
+    def test_failed_save_is_retried_on_exit(self):
+        store = self.memory_store()
+        self.fail_first_save()
+        _, err = self.run_repl(["one"], "r1", store=store)
+        self.assertIn("couldn't save history", err)
+        self.assertEqual(self.saved_sessions(store), [REPL_START + [
+            {"role": "user", "content": "one"}, {"role": "assistant", "content": "r1"}]])
+
+    # A turn whose save failed is retried before /reset starts a new session.
+    def test_failed_save_is_retried_on_reset(self):
+        store = self.memory_store()
+        self.fail_first_save()
+        self.run_repl(["one", "/reset", "two"], "r1", "r2", store=store)
+        self.assertEqual(self.saved_sessions(store), [
+            REPL_START + [{"role": "user", "content": "one"},
+                          {"role": "assistant", "content": "r1"}],
+            REPL_START + [{"role": "user", "content": "two"},
+                          {"role": "assistant", "content": "r2"}]])
+
+    # Quitting before any turn saves nothing, not even the system prompt.
+    def test_no_turns_saves_nothing(self):
+        store = self.memory_store()
+        self.run_repl(["/reset", "/exit"], store=store)
+        self.assertEqual(self.saved_sessions(store), [])
 
     # /reset drops earlier turns; blank lines are ignored and send nothing.
     def test_reset_clears_history(self):

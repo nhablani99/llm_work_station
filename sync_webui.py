@@ -14,6 +14,7 @@ from the environment or .env. OPEN_WEBUI_URL defaults to http://localhost:<OPEN_
 import argparse
 import json
 import os
+import re
 import sys
 import urllib.error
 import urllib.parse
@@ -31,18 +32,31 @@ class SyncError(Exception):
     """An operational failure talking to Open WebUI, with a message fit for the user."""
 
 
+# Return one .env value as docker compose reads it: quotes removed, inline comment dropped.
+def parse_env_value(raw, line_number):
+    # Covers the forms compose users write in practice. Compose's rarer ones (multi-line
+    # values, \n escapes, ${VAR} expansion) aren't needed for a URL, a port and an API key.
+    if raw[:1] in ("'", '"'):
+        end = raw.find(raw[0], 1)
+        if end == -1:
+            raise SyncError(f".env line {line_number}: unclosed quote")
+        return raw[1:end]
+    return re.split(r"\s#", raw, maxsplit=1)[0].strip()
+
+
 # Fill unset environment variables from KEY=VALUE lines in a .env file, if it exists.
 def load_dotenv(path=ENV_PATH, environ=os.environ):
     # docker compose reads .env on its own; doing the same here means one place for
     # the key. Real environment variables win, matching compose's precedence.
     if not path.exists():
         return
-    for line in path.read_text().splitlines():
+    for number, line in enumerate(path.read_text().splitlines(), start=1):
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        environ.setdefault(key.strip(), value.strip().strip("'\""))
+        key = key.strip().removeprefix("export ").strip()
+        environ.setdefault(key, parse_env_value(value.strip(), number))
 
 
 # Build the Open WebUI model payload for one registry task.
@@ -140,7 +154,10 @@ def main(argv=None):
     parser.add_argument("--dry-run", action="store_true", help="show changes without applying them")
     args = parser.parse_args(argv)
 
-    load_dotenv()
+    try:
+        load_dotenv()
+    except SyncError as e:
+        sys.exit(f"error: {e}")
     api_key = os.getenv("OPEN_WEBUI_API_KEY")
     if not api_key:
         sys.exit("error: set OPEN_WEBUI_API_KEY in .env "

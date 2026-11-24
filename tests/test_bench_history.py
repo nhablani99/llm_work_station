@@ -47,5 +47,16 @@ class RunTest(unittest.TestCase):
         self.assertEqual(rows[0]["ttft_cold_s"], 0.123)
 
 
+class ArgumentTests(unittest.TestCase):
+    # A turn count below 1 is a usage error (exit 2) before any model is contacted.
+    def test_turns_must_be_positive(self):
+        for turns in ("0", "-3"):
+            with self.subTest(turns=turns), mock.patch.object(bench_history, "run") as run, \
+                    contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as ctx:
+                bench_history.main(["--turns", turns])
+            self.assertEqual(ctx.exception.code, 2)
+            run.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

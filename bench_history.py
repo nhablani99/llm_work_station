@@ -103,11 +103,19 @@ def print_table(rows):
         print("  ".join(str(r[c]).rjust(widths[c]) for c in cols))
 
 
+# Parse a command-line count that must be at least 1, for argparse.
+def positive_int(text):
+    value = int(text)
+    if value < 1:
+        raise argparse.ArgumentTypeError(f"must be at least 1, got {value}")
+    return value
+
+
 # Parse args, run the benchmark, print the table, and optionally write a CSV.
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--task", default="chat", help="task from models.yaml (default: chat)")
-    parser.add_argument("--turns", type=int, default=20)
+    parser.add_argument("--turns", type=positive_int, default=20)
     parser.add_argument("--max-tokens", type=int, default=100, help="reply length cap per turn")
     parser.add_argument("--no-cold", action="store_true", help="skip the cold-cache replays")
     parser.add_argument("--csv", type=Path, help="also write results to this CSV file")
