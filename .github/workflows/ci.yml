@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # Unit tests only: they fake Ollama and Open WebUI, so CI needs neither.
+      - name: Unit tests
+        run: python -m unittest discover tests -v
+
+      - name: Shell scripts parse
+        run: for f in scripts/*.sh; do bash -n "$f"; done
+
+      # The compose file refuses to load without a secret; any value proves the syntax.
+      - name: Compose file is valid
+        run: WEBUI_SECRET_KEY=ci docker compose config --quiet
