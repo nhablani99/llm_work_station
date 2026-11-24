@@ -1,0 +1,20 @@
+# Ollama runs natively on the Mac (not in Docker): Docker on macOS can't use the
+# Apple GPU, so a containerized Ollama would be CPU-only and re-download models.
+# Start it with the Ollama app or `ollama serve` before `docker compose up`.
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.13.4
+    container_name: open-webui
+    ports:
+      - "${OPEN_WEBUI_PORT:-3000}:8080"
+    environment:
+      # host.docker.internal = the Mac host, as seen from inside the container
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      # Signs login sessions; fail fast instead of silently using a blank key
+      - WEBUI_SECRET_KEY=${WEBUI_SECRET_KEY:?set WEBUI_SECRET_KEY in .env}
+    volumes:
+      - open-webui:/app/backend/data  # users, chats, settings
+    restart: unless-stopped
+
+volumes:
+  open-webui:
