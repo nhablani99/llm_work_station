@@ -30,6 +30,16 @@ CITIES = ["Lisbon", "Osaka", "Quito", "Tallinn", "Nairobi", "Hobart", "Calgary"]
 FACTS_PER_TURN = 6
 
 
+# Round a duration to milliseconds, keeping None when a reply had no text to time.
+def seconds(value):
+    return None if value is None else round(value, 3)
+
+
+# Format a duration for the progress lines, or "n/a" when it wasn't measured.
+def show(value):
+    return "n/a" if value is None else f"{value:.2f}s"
+
+
 # Build the deterministic user message for turn i (1-based): a block of made-up facts plus a question.
 def turn_prompt(i):
     facts = [f"Note {i}.{j}: the {COLORS[(i + j) % 7]} {ANIMALS[(i * 3 + j) % 7]} from "
@@ -68,19 +78,19 @@ def run(cfg, turns, max_tokens, cold, sink):
             "sent_chars": sum(len(m["content"]) for m in prefixes[-1]),
             "prompt_tokens": stats.prompt_tokens,
             "cached_tokens": stats.cached_tokens,
-            "ttft_warm_s": round(stats.ttft, 3) if stats.ttft is not None else None,
+            "ttft_warm_s": seconds(stats.ttft),
             "decode_tok_s": round(stats.tokens_per_second, 1) if stats.tokens_per_second else None,
             "completion_tokens": stats.completion_tokens,
             "recalls_turn1": recalls_code_word(messages, cfg, sink),
         })
-        print(f"turn {i:>2}: prompt {stats.prompt_tokens} tok, ttft {stats.ttft:.2f}s",
+        print(f"turn {i:>2}: prompt {stats.prompt_tokens} tok, ttft {show(stats.ttft)}",
               file=sys.stderr)
     # Cold probes run after the warm pass: each one evicts the slot's cache, which
     # would otherwise distort the next warm turn.
     for row, prefix in zip(rows, prefixes):
-        row["ttft_cold_s"] = round(cold_ttft(prefix, cfg, row["turn"], sink), 3) if cold else None
+        row["ttft_cold_s"] = seconds(cold_ttft(prefix, cfg, row["turn"], sink)) if cold else None
         if cold:
-            print(f"cold {row['turn']:>2}: ttft {row['ttft_cold_s']:.2f}s", file=sys.stderr)
+            print(f"cold {row['turn']:>2}: ttft {show(row['ttft_cold_s'])}", file=sys.stderr)
     return rows
 
 
