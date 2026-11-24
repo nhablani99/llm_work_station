@@ -13,7 +13,7 @@ from unittest import mock
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import bench_history  # noqa: E402  (must follow the sys.path tweak)
-from client.chat import TurnStats  # noqa: E402
+from client.chat import RegistryError, TurnStats  # noqa: E402
 
 CFG = {"model": "fake-model", "temperature": 0}
 
@@ -56,6 +56,15 @@ class ArgumentTests(unittest.TestCase):
                 bench_history.main(["--turns", turns])
             self.assertEqual(ctx.exception.code, 2)
             run.assert_not_called()
+
+    # A bad models.yaml is a one-line error before any model is contacted.
+    def test_bad_registry_is_one_line_error(self):
+        bad = RegistryError("models.yaml is empty")
+        with mock.patch.object(bench_history, "load_registry", side_effect=bad), \
+                mock.patch.object(bench_history, "run") as run, self.assertRaises(SystemExit) as ctx:
+            bench_history.main([])
+        self.assertEqual(ctx.exception.code, "error: models.yaml is empty")
+        run.assert_not_called()
 
 
 if __name__ == "__main__":

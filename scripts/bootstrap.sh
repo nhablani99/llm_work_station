@@ -50,8 +50,14 @@ step "Starting Open WebUI and waiting until it's healthy (first run can take min
 docker compose up -d --wait
 
 step "Pulling models listed in models.yaml"
-models=$("$VENV/bin/python" -c \
-  'from client.chat import load_registry, required_models; print("\n".join(required_models(load_registry())))')
+# A bad models.yaml exits 1 with a one-line error (on stderr, not captured), and set -e stops here.
+models=$("$VENV/bin/python" -c '
+import sys
+from client.chat import RegistryError, load_registry, required_models
+try:
+    print("\n".join(required_models(load_registry())))
+except RegistryError as e:
+    sys.exit(f"error: {e}")')
 for model in $models; do
   # Skip models already present: re-pulling can silently swap in a newer build
   # behind the same tag, which is exactly the drift this script should not cause.
