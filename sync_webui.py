@@ -21,7 +21,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-from client.chat import load_registry
+from client.chat import RegistryError, load_registry
 
 ENV_PATH = Path(__file__).resolve().parent / ".env"
 MODEL_ID_PREFIX = "task-"
@@ -167,7 +167,7 @@ def main(argv=None):
 
     try:
         results = sync(load_registry(), WebUIClient(base_url, api_key), dry_run=args.dry_run)
-    except SyncError as e:
+    except (SyncError, RegistryError) as e:
         sys.exit(f"error: {e}")
     prefix = "[dry run] " if args.dry_run else ""
     for model_id, action in results:

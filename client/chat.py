@@ -45,10 +45,29 @@ def ollama_base_url():
 client = OpenAI(base_url=ollama_base_url(), api_key="ollama")  # key required, ignored
 
 
-# Load the task-to-model registry from models.yaml.
+class RegistryError(Exception):
+    """models.yaml is missing or unusable, with a message fit for the user."""
+
+
+# Load the task-to-model registry from models.yaml; raise RegistryError if it can't be used.
 def load_registry(path=REGISTRY_PATH):
-    with open(path) as f:
-        registry = yaml.safe_load(f)
+    try:
+        with open(path) as f:
+            registry = yaml.safe_load(f)
+    except OSError as e:
+        raise RegistryError(f"can't read {path} ({e.strerror})") from e
+    except yaml.YAMLError as e:
+        mark = getattr(e, "problem_mark", None)
+        where = f" line {mark.line + 1}" if mark else ""
+        raise RegistryError(f"{path}{where}: invalid YAML ({getattr(e, 'problem', None) or e})") from e
+    # No default means no model to fall back to; guessing one would hide a broken file.
+    if registry is None:
+        raise RegistryError(f"{path} is empty - it needs at least `default: <model>`")
+    if not isinstance(registry, dict):
+        raise RegistryError(f"{path} must hold settings like `default: <model>`, "
+                            f"but its top level is a {type(registry).__name__}")
+    if not registry.get("default"):
+        raise RegistryError(f"{path} has no `default:` model")
     # YAML reads an empty `tasks:` section as None; normalizing here means callers can
     # use registry["tasks"] directly instead of each guarding against it.
     registry["tasks"] = registry.get("tasks") or {}
@@ -265,12 +284,16 @@ def main(argv=None):
         store = open_history()
         try:
             repl(args.task, store=store)
+        except RegistryError as e:
+            sys.exit(f"error: {e}")
         finally:
             if store is not None:
                 store.close()
         return
     try:
         chat(" ".join(args.prompt), task=args.task)
+    except RegistryError as e:
+        sys.exit(f"error: {e}")
     except openai.APIError as e:
         sys.exit("error: " + error_message(e, pick(args.task, load_registry())["model"]))
     except KeyboardInterrupt:

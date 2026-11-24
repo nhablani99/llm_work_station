@@ -18,8 +18,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from client.chat import (SYSTEM_PROMPT, CONTEXT_TOKENS, load_registry,  # noqa: E402
-                         new_history, pick, stream_reply)
+from client.chat import (SYSTEM_PROMPT, CONTEXT_TOKENS, RegistryError,  # noqa: E402
+                         load_registry, new_history, pick, stream_reply)
 
 CODE_WORD = "MARMALADE"
 RECALL_QUESTION = ("Quick check: what is the code word I gave you in my very first message? "
@@ -121,7 +121,10 @@ def main(argv=None):
     parser.add_argument("--csv", type=Path, help="also write results to this CSV file")
     args = parser.parse_args(argv)
 
-    cfg = {**pick(args.task, load_registry()), "temperature": 0}
+    try:
+        cfg = {**pick(args.task, load_registry()), "temperature": 0}
+    except RegistryError as e:
+        sys.exit(f"error: {e}")
     print(f"model {cfg['model']}, {args.turns} turns, context {CONTEXT_TOKENS} tokens",
           file=sys.stderr)
     with open(os.devnull, "w") as sink:

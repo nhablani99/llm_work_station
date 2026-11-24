@@ -106,6 +106,38 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(registry["tasks"], {})
         self.assertEqual(chat.pick("chat", registry)["model"], "only-model")
 
+    # Write text to a temporary models.yaml and assert loading it raises RegistryError matching pattern.
+    def assert_rejected(self, text, pattern):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "models.yaml"
+            path.write_text(text)
+            with self.assertRaisesRegex(chat.RegistryError, pattern):
+                chat.load_registry(path)
+
+    # An empty file is an error naming what it needs, not an AttributeError.
+    def test_empty_file_is_rejected(self):
+        self.assert_rejected("", "is empty")
+        self.assert_rejected("# just a comment\n", "is empty")
+
+    # A top level that isn't key: value settings (here a list) is rejected.
+    def test_non_mapping_is_rejected(self):
+        self.assert_rejected("- a\n- b\n", "top level is a list")
+
+    # Without a default model there is nothing to fall back to.
+    def test_missing_default_is_rejected(self):
+        self.assert_rejected("tasks:\n  chat:\n    model: m\n", "no `default:` model")
+        self.assert_rejected("default:\ntasks:\n", "no `default:` model")
+
+    # A YAML syntax error is reported with its line number.
+    def test_invalid_yaml_names_the_line(self):
+        self.assert_rejected("default: m\ntasks:\n  chat: [unclosed\n", r"line \d+: invalid YAML")
+
+    # A missing file is a RegistryError naming the path.
+    def test_missing_file_is_rejected(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaisesRegex(chat.RegistryError, "can't read .*nope.yaml"):
+                chat.load_registry(Path(d) / "nope.yaml")
+
 
 class RequiredModelsTests(unittest.TestCase):
     # Default first, then each task's model in file order, each listed once.
@@ -170,6 +202,17 @@ class CliArgumentTests(unittest.TestCase):
                 self.assertRaises(SystemExit) as ctx:
             chat.main(["fast", "hello"])
         self.assertEqual(ctx.exception.code, "error: model failed to load")
+
+    # A bad models.yaml stops both modes with a one-line error; the REPL's history store is still closed.
+    def test_bad_registry_is_one_line_error(self):
+        bad = chat.RegistryError("models.yaml is empty")
+        with mock.patch.object(chat, "load_registry", side_effect=bad), \
+                mock.patch.object(history, "open_store") as open_store:
+            for argv in (["fast", "hello"], ["fast"]):
+                with self.subTest(argv=argv), self.assertRaises(SystemExit) as ctx:
+                    chat.main(argv)
+                self.assertEqual(ctx.exception.code, "error: models.yaml is empty")
+        open_store.return_value.close.assert_called_once()
 
 
 # Build a fake streaming chunk: text content, or a final usage-only chunk.

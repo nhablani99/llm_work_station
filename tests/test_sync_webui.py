@@ -137,6 +137,18 @@ class LoadDotenvTests(unittest.TestCase):
         with self.assertRaisesRegex(sync_webui.SyncError, "line 2"):
             self.load("A=1\nE=\"mismatched'\n")
 
+    # A bad models.yaml stops main() with a one-line error, before Open WebUI is contacted.
+    def test_main_reports_bad_registry(self):
+        with mock.patch.object(sync_webui, "load_dotenv"), \
+                mock.patch.dict(sync_webui.os.environ, {"OPEN_WEBUI_API_KEY": "k"}), \
+                mock.patch.object(sync_webui, "load_registry",
+                                  side_effect=sync_webui.RegistryError("models.yaml is empty")), \
+                mock.patch.object(sync_webui, "WebUIClient") as client, \
+                self.assertRaises(SystemExit) as ctx:
+            sync_webui.main([])
+        self.assertEqual(ctx.exception.code, "error: models.yaml is empty")
+        client.return_value.get_model.assert_not_called()
+
     # A bad .env stops main() with a one-line error, not a traceback.
     def test_main_reports_bad_env_file(self):
         with mock.patch.object(sync_webui, "load_dotenv",
