@@ -182,13 +182,15 @@ def error_message(exc, model):
 
 # Save the messages not yet stored for this session and return the new saved count.
 def persist(store, session_id, messages, saved, model, err):
-    if store is None:
+    # Skip when no completed turn is waiting: saving just the system prompt would
+    # leave an empty session behind every chat that was quit without a turn.
+    if store is None or not any(m["role"] == "user" for m in messages[saved:]):
         return saved
     try:
         history.save_messages(store, session_id, messages[saved:], model)
     except sqlite3.Error as e:
-        # The chat matters more than the log. Leaving `saved` unchanged means the
-        # next successful turn retries these messages, so a brief failure loses nothing.
+        # The chat matters more than the log. Leaving `saved` unchanged means the next
+        # turn, /reset, or the end of the chat retries these messages.
         print(f"[warning: couldn't save history: {e}]", file=err)
         return saved
     return len(messages)
@@ -204,35 +206,40 @@ def repl(task, system=None, read=input, api=None, out=None, err=None, store=None
     session_id, saved = history.new_session_id(), 0
     print(f"chatting with {cfg['model']} - /reset clears history, /exit or Ctrl-D quits",
           file=err)
-    while True:
-        try:
-            text = read("> ").strip()
-        except EOFError:
-            print(file=out)
-            return
-        except KeyboardInterrupt:  # like Python's REPL: Ctrl-C abandons the line, not the chat
-            print(file=out)
-            continue
-        if not text:
-            continue
-        if text in ("/exit", "/quit"):
-            return
-        if text == "/reset":
-            messages = new_history(system)
-            session_id, saved = history.new_session_id(), 0
-            print("[history cleared]", file=err)
-            continue
-        try:
-            stats = take_turn(messages, text, cfg, api=api, out=out)
-        except KeyboardInterrupt:
-            print("\n[interrupted - turn discarded]", file=err)
-            continue
-        except openai.APIError as e:  # keep the session alive; the failed turn was rolled back
-            print("error: " + error_message(e, cfg["model"]), file=err)
-            continue
-        saved = persist(store, session_id, messages, saved, cfg["model"], err)
-        turn = sum(m["role"] == "user" for m in messages)
-        print(format_stats(turn, stats), file=err)
+    try:
+        while True:
+            try:
+                text = read("> ").strip()
+            except EOFError:
+                print(file=out)
+                return
+            except KeyboardInterrupt:  # like Python's REPL: Ctrl-C abandons the line, not the chat
+                print(file=out)
+                continue
+            if not text:
+                continue
+            if text in ("/exit", "/quit"):
+                return
+            if text == "/reset":
+                persist(store, session_id, messages, saved, cfg["model"], err)  # last retry
+                messages = new_history(system)
+                session_id, saved = history.new_session_id(), 0
+                print("[history cleared]", file=err)
+                continue
+            try:
+                stats = take_turn(messages, text, cfg, api=api, out=out)
+            except KeyboardInterrupt:
+                print("\n[interrupted - turn discarded]", file=err)
+                continue
+            except openai.APIError as e:  # keep the session alive; the failed turn was rolled back
+                print("error: " + error_message(e, cfg["model"]), file=err)
+                continue
+            saved = persist(store, session_id, messages, saved, cfg["model"], err)
+            turn = sum(m["role"] == "user" for m in messages)
+            print(format_stats(turn, stats), file=err)
+    finally:
+        # Last retry for turns whose save failed, however the chat ends (/exit, Ctrl-D, a crash).
+        persist(store, session_id, messages, saved, cfg["model"], err)
 
 
 # Open the history database, or warn and return None so the chat still runs without saving.
