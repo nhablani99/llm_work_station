@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+
+# Virtual environments
+venv/
+.venv/
+myenv/
+
+# Secrets — keep the template, ignore real env files
+.env
+.env.*
+!.env.example
+
+# Notebooks / editors / OS
+.ipynb_checkpoints/
+.idea/
+.DS_Store
