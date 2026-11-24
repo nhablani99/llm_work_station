@@ -132,6 +132,83 @@ class RegistryTests(unittest.TestCase):
     def test_invalid_yaml_names_the_line(self):
         self.assert_rejected("default: m\ntasks:\n  chat: [unclosed\n", r"line \d+: invalid YAML")
 
+    # Return a models.yaml body with one task, `chat`, whose settings are the given indented YAML lines.
+    def one_task(self, settings):
+        return "default: d\ntasks:\n  chat:\n" + "".join(f"    {line}\n" for line in settings)
+
+    # Misspelling `tasks:` would otherwise silently leave every task on the default model.
+    def test_unknown_top_level_key_is_rejected(self):
+        self.assert_rejected("default: d\ntask:\n  code:\n    model: c\n    temperature: 0.2\n",
+                             r"unknown top-level setting `task` \(did you mean `tasks`\?\)")
+
+    # The default must be a model name, not a number.
+    def test_default_must_be_a_name(self):
+        self.assert_rejected("default: 3\n", r"`default` must be a model name")
+
+    # `tasks` must map task names to settings.
+    def test_tasks_must_be_a_mapping(self):
+        self.assert_rejected("default: d\ntasks: [a, b]\n", r"`tasks` must hold one entry per task")
+
+    # Task names become Open WebUI ids and CLI arguments: text, no spaces. YAML reads `yes:` as True.
+    def test_task_names_must_be_text_without_spaces(self):
+        for name, shown in (("my chat", "'my chat'"), ("yes", "True")):
+            with self.subTest(name=name):
+                self.assert_rejected(f"default: d\ntasks:\n  {name}:\n    model: m\n    temperature: 0.5\n",
+                                     f"task names must be text with no spaces, got {shown}")
+        self.assert_rejected("default: d\ntasks:\n  yes:\n    model: m\n    temperature: 0.5\n",
+                             r"YAML reads yes/no/on/off as true/false; quote the name")
+
+    # The `chat: model-name` shorthand isn't supported; the error says what to write instead.
+    def test_task_must_hold_settings(self):
+        self.assert_rejected("default: d\ntasks:\n  chat: m\n",
+                             r"tasks\.chat: must hold settings like `model:` and `temperature:`")
+
+    # Every task needs a model name.
+    def test_model_is_required(self):
+        self.assert_rejected(self.one_task(["temperature: 0.5"]), r"tasks\.chat: missing `model`")
+        self.assert_rejected(self.one_task(["model: ''", "temperature: 0.5"]),
+                             r"tasks\.chat: `model` must be a model name")
+
+    # Temperature is required and must be a real number from 0 to 2 (booleans don't count).
+    def test_temperature_is_required_and_in_range(self):
+        self.assert_rejected(self.one_task(["model: m"]), r"tasks\.chat: missing `temperature`")
+        for value in ("hot", "2.5", "-1", "true"):
+            with self.subTest(value=value):
+                self.assert_rejected(self.one_task(["model: m", f"temperature: {value}"]),
+                                     r"`temperature` must be a number from 0 to 2")
+
+    # Optional prompt and description must be text when given.
+    def test_optional_settings_must_be_text(self):
+        self.assert_rejected(self.one_task(["model: m", "temperature: 0.5", "system: 3"]),
+                             r"tasks\.chat: `system` must be text")
+        self.assert_rejected(self.one_task(["model: m", "temperature: 0.5", "description: [a]"]),
+                             r"tasks\.chat: `description` must be text")
+
+    # A misspelled setting is an error with a suggestion, not silently ignored.
+    def test_unknown_task_setting_suggests_a_fix(self):
+        self.assert_rejected(self.one_task(["model: m", "temperature: 0.5", "sytem: Be brief."]),
+                             r"tasks\.chat: unknown setting `sytem` \(did you mean `system`\?\)$")
+        self.assert_rejected(self.one_task(["model: m", "temperature: 0.5", "colour: red"]),
+                             r"tasks\.chat: unknown setting `colour`$")
+
+    # All problems are reported together, one per line, so they can be fixed in one pass.
+    def test_reports_every_problem_at_once(self):
+        text = ("default: d\ntasks:\n  chat:\n    model: m\n    temperature: 0.5\n    sytem: x\n"
+                "  code:\n    model: c\n    temperature: hot\n")
+        self.assert_rejected(text, r"has 2 problems:\n  tasks\.chat: unknown setting `sytem`.*\n"
+                                   r"  tasks\.code: `temperature` must be a number")
+
+    # Valid edge cases load: boundary and integer temperatures, empty optional settings.
+    def test_valid_tasks_load(self):
+        text = ("default: d\ntasks:\n"
+                "  cold:\n    model: m\n    temperature: 0\n    system:\n"
+                "  hot:\n    model: m\n    temperature: 2\n    description: Hot.\n    system: Be bold.\n")
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "models.yaml"
+            path.write_text(text)
+            registry = chat.load_registry(path)
+        self.assertEqual(sorted(registry["tasks"]), ["cold", "hot"])
+
     # A missing file is a RegistryError naming the path.
     def test_missing_file_is_rejected(self):
         with tempfile.TemporaryDirectory() as d:

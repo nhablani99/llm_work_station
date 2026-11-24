@@ -1,4 +1,5 @@
 import argparse
+import difflib
 import os
 import sqlite3
 import sys
@@ -25,6 +26,11 @@ except ImportError:  # not available on every platform; the REPL works without i
 # models.yaml sits at the repo root, one level above client/. Resolving it from
 # this file (not the working directory) lets the script run from any folder.
 REGISTRY_PATH = Path(__file__).resolve().parent.parent / "models.yaml"
+
+# The only settings models.yaml may contain; anything else is reported as a likely typo.
+TOP_LEVEL_SETTINGS = ("default", "tasks")
+TASK_SETTINGS = ("model", "temperature", "system", "description")
+MAX_TEMPERATURE = 2  # the OpenAI-compatible API's range is 0 to 2
 
 SYSTEM_PROMPT = "You are a concise assistant."
 
@@ -66,12 +72,78 @@ def load_registry(path=REGISTRY_PATH):
     if not isinstance(registry, dict):
         raise RegistryError(f"{path} must hold settings like `default: <model>`, "
                             f"but its top level is a {type(registry).__name__}")
-    if not registry.get("default"):
-        raise RegistryError(f"{path} has no `default:` model")
+    problems = registry_problems(registry)
+    if len(problems) == 1:
+        raise RegistryError(f"{path}: {problems[0]}")
+    if problems:
+        raise RegistryError(f"{path} has {len(problems)} problems:\n  " + "\n  ".join(problems))
     # YAML reads an empty `tasks:` section as None; normalizing here means callers can
     # use registry["tasks"] directly instead of each guarding against it.
     registry["tasks"] = registry.get("tasks") or {}
     return registry
+
+
+# Return " (did you mean `x`?)" for the allowed name closest to a misspelled key, or "".
+def did_you_mean(key, allowed):
+    close = difflib.get_close_matches(str(key), allowed, n=1)
+    return f" (did you mean `{close[0]}`?)" if close else ""
+
+
+# Return True if value is non-blank text, as model names must be.
+def is_name(value):
+    return isinstance(value, str) and bool(value.strip())
+
+
+# List every problem with a parsed registry's settings, as readable messages (empty when valid).
+def registry_problems(registry):
+    # Unknown keys are errors, not ignored: a typo like `task:` or `sytem:` would
+    # otherwise silently drop the tasks or the prompt it was meant to set.
+    problems = [f"unknown top-level setting `{key}`{did_you_mean(key, TOP_LEVEL_SETTINGS)}"
+                for key in registry if key not in TOP_LEVEL_SETTINGS]
+    default = registry.get("default")
+    if not default:
+        problems.append("no `default:` model")
+    elif not is_name(default):
+        problems.append(f"`default` must be a model name like llama3.2:3b, got {default!r}")
+    tasks = registry.get("tasks") or {}
+    if not isinstance(tasks, dict):
+        problems.append(f"`tasks` must hold one entry per task, like `chat:`, "
+                        f"not a {type(tasks).__name__}")
+        return problems
+    for name, cfg in tasks.items():
+        problems += task_problems(name, cfg)
+    return problems
+
+
+# List every problem with one task's name and settings, each prefixed with where it is.
+def task_problems(name, cfg):
+    where, problems = f"tasks.{name}", []
+    # Task names become Open WebUI model ids, which can't contain whitespace.
+    if not isinstance(name, str) or not name or any(c.isspace() for c in name):
+        hint = (" (YAML reads yes/no/on/off as true/false; quote the name, e.g. 'yes':)"
+                if isinstance(name, bool) else "")
+        problems.append(f"{where}: task names must be text with no spaces, got {name!r}{hint}")
+    if not isinstance(cfg, dict):
+        return problems + [f"{where}: must hold settings like `model:` and `temperature:` "
+                           f"on their own indented lines, not {cfg!r}"]
+    if "model" not in cfg:
+        problems.append(f"{where}: missing `model`")
+    elif not is_name(cfg["model"]):
+        problems.append(f"{where}: `model` must be a model name like llama3.2:3b, got {cfg['model']!r}")
+    temperature = cfg.get("temperature")
+    if "temperature" not in cfg:
+        problems.append(f"{where}: missing `temperature` (a number from 0 to {MAX_TEMPERATURE})")
+    # bool is a subclass of int in Python, so `temperature: true` must be excluded explicitly.
+    elif (isinstance(temperature, bool) or not isinstance(temperature, (int, float))
+          or not 0 <= temperature <= MAX_TEMPERATURE):
+        problems.append(f"{where}: `temperature` must be a number from 0 to {MAX_TEMPERATURE}, "
+                        f"got {temperature!r}")
+    for key in ("system", "description"):  # optional; an empty `system:` reads as None
+        if cfg.get(key) is not None and not isinstance(cfg[key], str):
+            problems.append(f"{where}: `{key}` must be text, got {cfg[key]!r}")
+    problems += [f"{where}: unknown setting `{key}`{did_you_mean(key, TASK_SETTINGS)}"
+                 for key in cfg if key not in TASK_SETTINGS]
+    return problems
 
 
 # List every model the registry needs pulled: the default, then each task's, without repeats.
