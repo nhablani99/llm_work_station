@@ -48,7 +48,11 @@ client = OpenAI(base_url=ollama_base_url(), api_key="ollama")  # key required, i
 # Load the task-to-model registry from models.yaml.
 def load_registry(path=REGISTRY_PATH):
     with open(path) as f:
-        return yaml.safe_load(f)
+        registry = yaml.safe_load(f)
+    # YAML reads an empty `tasks:` section as None; normalizing here means callers can
+    # use registry["tasks"] directly instead of each guarding against it.
+    registry["tasks"] = registry.get("tasks") or {}
+    return registry
 
 
 # List every model the registry needs pulled: the default, then each task's, without repeats.

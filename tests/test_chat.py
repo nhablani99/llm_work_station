@@ -97,6 +97,15 @@ class RegistryTests(unittest.TestCase):
         self.assertIn("tasks", registry)
         self.assertIn("default", registry)
 
+    # An empty `tasks:` section loads as no tasks, so every task falls back to the default model.
+    def test_empty_tasks_section_falls_back_to_default(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "models.yaml"
+            path.write_text("default: only-model\ntasks:\n")
+            registry = chat.load_registry(path)
+        self.assertEqual(registry["tasks"], {})
+        self.assertEqual(chat.pick("chat", registry)["model"], "only-model")
+
 
 class RequiredModelsTests(unittest.TestCase):
     # Default first, then each task's model in file order, each listed once.

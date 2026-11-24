@@ -66,6 +66,16 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(sync_webui.sync(REGISTRY, api), [("task-code", "created")])
         self.assertEqual(api.created, [sync_webui.to_webui_model("code", CODE_CFG)])
 
+    # A models.yaml with an empty `tasks:` section syncs nothing instead of crashing.
+    def test_empty_tasks_section_syncs_nothing(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "models.yaml"
+            path.write_text("default: only-model\ntasks:\n")
+            registry = sync_webui.load_registry(path)
+        api = FakeWebUI()
+        self.assertEqual(sync_webui.sync(registry, api), [])
+        self.assertEqual(api.created, [])
+
     # A model that already matches the registry is left alone (no new history entry).
     def test_skips_unchanged_model(self):
         desired = sync_webui.to_webui_model("code", CODE_CFG)
