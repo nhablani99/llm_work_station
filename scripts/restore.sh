@@ -14,8 +14,16 @@ HELPER_IMAGE=alpine:3.20
 # Print an error and exit.
 die() { echo "error: $*" >&2; exit 1; }
 
-[ $# -ge 1 ] || die "usage: $0 <backup.tgz> [--yes]"
-archive=$1
+usage="usage: $0 <backup.tgz> [--yes]"
+archive= yes=
+for arg in "$@"; do
+  case $arg in
+    --yes) yes=1 ;;
+    -*) die "unknown option: $arg ($usage)" ;;
+    *) [ -z "$archive" ] || die "$usage"; archive=$arg ;;
+  esac
+done
+[ -n "$archive" ] || die "$usage"
 [ -f "$archive" ] || die "no such file: $archive"
 # Resolve before cd-ing to the repo root, so relative paths work from anywhere.
 archive_dir=$(cd "$(dirname "$archive")" && pwd)
@@ -32,8 +40,10 @@ docker run --rm -v "$archive_dir:/backup:ro" "$HELPER_IMAGE" \
   sh -c "tar tzf '/backup/$archive_name' > /tmp/list && grep -qx './webui.db' /tmp/list" \
   || die "$archive is unreadable or isn't an Open WebUI backup (see tar's error above)"
 
-if [ "${2:-}" != "--yes" ]; then
-  read -r -p "Replace all current Open WebUI data with $archive_name? Type 'restore': " answer
+if [ -z "$yes" ]; then
+  # Without a terminal (cron, a pipe) read hits end of input; say why instead of exiting silently.
+  read -r -p "Replace all current Open WebUI data with $archive_name? Type 'restore': " answer \
+    || die "aborted (no input - pass --yes to skip the prompt)"
   [ "$answer" = restore ] || die "aborted"
 fi
 
