@@ -14,6 +14,9 @@ myenv/
 # Local data — chat history database (client/history.py)
 data/
 
+# Open WebUI backups (scripts/backup.sh) — contain chats and password hashes
+backups/
+
 # Secrets — keep the template, ignore real env files
 .env
 .env.*
