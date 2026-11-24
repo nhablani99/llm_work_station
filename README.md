@@ -1,10 +1,16 @@
 # llm_work_station
 
-A local LLM workstation: route tasks (chat, code, fast) to locally run models
-served by [Ollama](https://ollama.com), with the task-to-model mapping kept in
-`models.yaml`.
+Run open-source LLMs privately on your Mac. Each kind of work (chat, code,
+quick answers) is a *task* in `models.yaml`, mapped to a model that
+[Ollama](https://ollama.com) runs locally. You can use the tasks in two places:
 
-> **Status:** early work in progress — most files are scaffolding.
+- **Terminal:** `python3 client/chat.py code "..."` for a single question, or
+  `python3 client/chat.py chat` for a conversation that's saved to local history.
+- **Browser:** [Open WebUI](https://openwebui.com) at http://localhost:3000,
+  where `sync_webui.py` sets up each task as a ready-to-use model.
+
+The models run on this machine and chats are stored locally.
+`scripts/bootstrap.sh` sets everything up in one command.
 
 ## Layout
 
