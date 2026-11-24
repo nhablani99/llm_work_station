@@ -6,7 +6,19 @@ services:
     image: ghcr.io/open-webui/open-webui:v0.13.4
     container_name: open-webui
     ports:
-      - "${OPEN_WEBUI_PORT:-3000}:8080"
+      # Localhost only: until an admin exists, whoever signs up first becomes admin.
+      # Drop the 127.0.0.1 prefix only when you mean to share it on your network.
+      - "127.0.0.1:${OPEN_WEBUI_PORT:-3000}:8080"
+    # The image ships this check with Docker's slow defaults (30s, no grace period).
+    # Same test, retuned so `docker compose up --wait` returns soon after it's ready;
+    # the long start_period covers first-run embedding-model downloads.
+    healthcheck:
+      test: ["CMD-SHELL", "curl --silent --fail http://localhost:8080/health | jq -ne 'input.status == true' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5m
+      start_interval: 3s
     environment:
       # host.docker.internal = the Mac host, as seen from inside the container
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
