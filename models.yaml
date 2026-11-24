@@ -1,5 +1,19 @@
 default: llama3.2:3b
+# Each task is mirrored into Open WebUI as a custom model by `python3 sync_webui.py`.
+# `system` is optional; tasks without one use the CLI's built-in prompt.
 tasks:
-  chat: { model: llama3.2:3b, description: "A conversational model for chat applications." , temperature: 0.7 }
-  code: { model: qwen2.5-coder:7b, description: "A model specialized for code generation and understanding." , temperature: 0.2 }
-  fast: { model: llama3.2:3b, description: "A lightweight model for fast responses." , temperature: 0.5 }
+  chat:
+    model: llama3.2:3b
+    description: "A conversational model for chat applications."
+    temperature: 0.7
+    system: "You are a friendly, concise conversational assistant."
+  code:
+    model: qwen2.5-coder:7b
+    description: "A model specialized for code generation and understanding."
+    temperature: 0.2
+    system: "You are a senior software engineer. Give working code first, then a brief explanation. Prefer the standard library."
+  fast:
+    model: llama3.2:3b
+    description: "A lightweight model for fast responses."
+    temperature: 0.5
+    system: "Answer in one to three sentences. No preamble."

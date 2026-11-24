@@ -61,6 +61,29 @@ class PickTests(unittest.TestCase):
         self.assertEqual(chat.pick("nope", REGISTRY)["model"], "default-model")
 
 
+class SystemPromptTests(unittest.TestCase):
+    # A task's own system prompt is used when the registry gives one.
+    def test_uses_task_prompt(self):
+        self.assertEqual(chat.system_prompt({"system": "be terse"}), "be terse")
+
+    # Tasks with no (or an empty) system prompt use the built-in one.
+    def test_falls_back_to_builtin_prompt(self):
+        self.assertEqual(chat.system_prompt({}), chat.SYSTEM_PROMPT)
+        self.assertEqual(chat.system_prompt({"system": ""}), chat.SYSTEM_PROMPT)
+
+    # One-shot mode sends the task's prompt as the system message.
+    def test_one_shot_sends_task_prompt(self):
+        registry = {"default": "d", "tasks": {"code": {"model": "c", "temperature": 0,
+                                                       "system": "code prompt"}}}
+        api = FakeApi("ok")
+        with mock.patch.object(chat, "load_registry", return_value=registry), \
+                mock.patch.object(chat, "client", api), \
+                contextlib.redirect_stdout(io.StringIO()):
+            chat.chat("hi", task="code")
+        self.assertEqual(api.requests[0]["messages"][0],
+                         {"role": "system", "content": "code prompt"})
+
+
 class RegistryTests(unittest.TestCase):
     # models.yaml is found even when the working directory is elsewhere.
     def test_loads_from_any_working_directory(self):
@@ -183,7 +206,21 @@ class TakeTurnTests(unittest.TestCase):
         self.assertEqual(messages, chat.new_history())
 
 
+# A fixed registry for REPL tests, so editing models.yaml's prompts can't break them.
+REPL_REGISTRY = {
+    "default": "default-model",
+    "tasks": {"chat": {"model": "chat-model", "temperature": 0.7, "system": "test prompt"}},
+}
+REPL_START = chat.new_history("test prompt")
+
+
 class ReplTests(unittest.TestCase):
+    # Serve REPL_REGISTRY instead of reading models.yaml for every test in this class.
+    def setUp(self):
+        patcher = mock.patch.object(chat, "load_registry", return_value=REPL_REGISTRY)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     # Drive the REPL with scripted input lines (ending in Ctrl-D) and return (api, stderr text).
     def run_repl(self, lines, *replies, store=None):
         api, err = FakeApi(*replies), io.StringIO()
@@ -215,10 +252,10 @@ class ReplTests(unittest.TestCase):
     def test_saves_completed_turns(self):
         store = self.memory_store()
         self.run_repl(["one", "two"], "r1", "r2", store=store)
-        self.assertEqual(self.saved_sessions(store), [chat.new_history() + [
+        self.assertEqual(self.saved_sessions(store), [REPL_START + [
             {"role": "user", "content": "one"}, {"role": "assistant", "content": "r1"},
             {"role": "user", "content": "two"}, {"role": "assistant", "content": "r2"}]])
-        expected_model = chat.pick("chat", chat.load_registry())["model"]
+        expected_model = "chat-model"
         models = {row[0] for row in store.execute("SELECT model FROM messages")}
         self.assertEqual(models, {expected_model})
 
@@ -227,7 +264,7 @@ class ReplTests(unittest.TestCase):
         store = self.memory_store()
         self.run_repl(["one", "two", "three"], connection_error(), KeyboardInterrupt(), "r3",
                       store=store)
-        self.assertEqual(self.saved_sessions(store), [chat.new_history() + [
+        self.assertEqual(self.saved_sessions(store), [REPL_START + [
             {"role": "user", "content": "three"}, {"role": "assistant", "content": "r3"}]])
 
     # /reset starts a new session id, each with its own system prompt.
@@ -235,9 +272,9 @@ class ReplTests(unittest.TestCase):
         store = self.memory_store()
         self.run_repl(["one", "/reset", "two"], "r1", "r2", store=store)
         self.assertEqual(self.saved_sessions(store), [
-            chat.new_history() + [{"role": "user", "content": "one"},
+            REPL_START + [{"role": "user", "content": "one"},
                                   {"role": "assistant", "content": "r1"}],
-            chat.new_history() + [{"role": "user", "content": "two"},
+            REPL_START + [{"role": "user", "content": "two"},
                                   {"role": "assistant", "content": "r2"}]])
 
     # A database failure is reported as a warning and the conversation carries on.
@@ -254,7 +291,7 @@ class ReplTests(unittest.TestCase):
         api, _ = self.run_repl(["one", "", "/reset", "two"], "r1", "r2")
         self.assertEqual(len(api.requests), 2)
         self.assertEqual(api.requests[1]["messages"],
-                         chat.new_history() + [{"role": "user", "content": "two"}])
+                         REPL_START + [{"role": "user", "content": "two"}])
 
     # An API error is reported and the session continues with clean history.
     def test_error_keeps_session_alive(self):

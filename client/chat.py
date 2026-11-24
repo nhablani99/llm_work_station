@@ -56,6 +56,11 @@ def pick(task, registry):
     return registry["tasks"].get(task, {"model": registry["default"], "temperature": 0.7})
 
 
+# Return the task's own system prompt from the registry, or the built-in one if it has none.
+def system_prompt(cfg):
+    return cfg.get("system") or SYSTEM_PROMPT
+
+
 @dataclass(frozen=True)
 class TurnStats:
     """Timing and token counts for one streamed reply (None = server didn't report it)."""
@@ -111,8 +116,9 @@ def stream_reply(messages, cfg, api=None, out=None, max_tokens=None):
 
 
 # Stream a single question with no history (the one-shot CLI mode).
-def chat(prompt, task="chat", system=SYSTEM_PROMPT):
+def chat(prompt, task="chat", system=None):
     cfg = pick(task, load_registry())
+    system = system or system_prompt(cfg)
     stream_reply([{"role": "system", "content": system},
                   {"role": "user", "content": prompt}], cfg)
 
@@ -179,9 +185,10 @@ def persist(store, session_id, messages, saved, model, err):
 
 # Run an interactive chat that resends the full history every turn; /reset clears it.
 # With a store, each completed turn is saved to SQLite under a per-conversation session id.
-def repl(task, system=SYSTEM_PROMPT, read=input, api=None, out=None, err=None, store=None):
+def repl(task, system=None, read=input, api=None, out=None, err=None, store=None):
     out, err = out or sys.stdout, err or sys.stderr
     cfg = pick(task, load_registry())
+    system = system or system_prompt(cfg)
     messages = new_history(system)
     session_id, saved = history.new_session_id(), 0
     print(f"chatting with {cfg['model']} - /reset clears history, /exit or Ctrl-D quits",
