@@ -98,6 +98,25 @@ class RegistryTests(unittest.TestCase):
         self.assertIn("default", registry)
 
 
+class RequiredModelsTests(unittest.TestCase):
+    # Default first, then each task's model in file order, each listed once.
+    def test_default_then_tasks_deduplicated(self):
+        registry = {"default": "a", "tasks": {"x": {"model": "b"}, "y": {"model": "a"},
+                                              "z": {"model": "b"}, "w": {"model": "c"}}}
+        self.assertEqual(chat.required_models(registry), ["a", "b", "c"])
+
+    # A registry with no tasks still needs its default model.
+    def test_no_tasks_needs_only_default(self):
+        self.assertEqual(chat.required_models({"default": "a"}), ["a"])
+        self.assertEqual(chat.required_models({"default": "a", "tasks": None}), ["a"])
+
+    # The real models.yaml lists the models bootstrap.sh will pull.
+    def test_real_registry(self):
+        models = chat.required_models(chat.load_registry())
+        self.assertIn(chat.load_registry()["default"], models)
+        self.assertEqual(len(models), len(set(models)))
+
+
 class CliArgumentTests(unittest.TestCase):
     # Run main() with argv and return its exit code, silencing argparse's usage output.
     def exit_code(self, argv):

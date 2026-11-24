@@ -51,6 +51,13 @@ def load_registry(path=REGISTRY_PATH):
         return yaml.safe_load(f)
 
 
+# List every model the registry needs pulled: the default, then each task's, without repeats.
+def required_models(registry):
+    models = [registry["default"]]
+    models += [cfg["model"] for cfg in (registry.get("tasks") or {}).values()]
+    return list(dict.fromkeys(models))  # dedupe, keeping first-seen order
+
+
 # Route a task name to its model config; fall back to the default model.
 def pick(task, registry):
     return registry["tasks"].get(task, {"model": registry["default"], "temperature": 0.7})
