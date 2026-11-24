@@ -11,6 +11,9 @@ venv/
 .venv/
 myenv/
 
+# Local data — chat history database (client/history.py)
+data/
+
 # Secrets — keep the template, ignore real env files
 .env
 .env.*

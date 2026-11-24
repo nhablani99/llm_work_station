@@ -1,5 +1,5 @@
-default: llama3.1:8b
+default: llama3.2:3b
 tasks:
-  chat: { model: llama3.1:8b, description: "A conversational model for chat applications." , temperature: 0.7 }
+  chat: { model: llama3.2:3b, description: "A conversational model for chat applications." , temperature: 0.7 }
   code: { model: qwen2.5-coder:7b, description: "A model specialized for code generation and understanding." , temperature: 0.2 }
   fast: { model: llama3.2:3b, description: "A lightweight model for fast responses." , temperature: 0.5 }
